@@ -2,6 +2,11 @@ import pygame
 import time
 import random
 
+import numpy as np
+
+from keras.models import Sequential
+from keras.layers import Dense, Activation
+from keras.optimizers import SGD
 FPS = 60
 SCREENWIDTH = 288.0
 SCREENHEIGHT = 512.0
@@ -9,8 +14,66 @@ SCREENHEIGHT = 512.0
 # image and hitmask dicts
 IMAGES, HITMASKS = {}, {}
 
-total_models = 1
+load_saved_pool = 1
+save_current_pool = 1
+current_pool = []
+fitness = []
+total_models = 10
 
+generation = 1
+
+def save_pool():
+    for xi in range(total_models):
+        current_pool[xi].save_weights("Current_Model_Pool/first_model" + str(xi) + ".keras")
+    print("Saved current pool!")
+
+def model_crossover(model_idx1, model_idx2):
+    global current_pool
+    weights1 = current_pool[model_idx1].get_weights()
+    weights2 = current_pool[model_idx2].get_weights()
+    weightsnew1 = weights1
+    weightsnew2 = weights2
+    weightsnew1[0] = weights2[0]
+    weightsnew2[0] = weights1[0]
+    return np.asarray([weightsnew1, weightsnew2])
+
+def model_mutate(weights):
+    for xi in range(len(weights)):
+        for yi in range(len(weights[xi])):
+            if random.uniform(0, 1) > 0.85:
+                change = random.uniform(-0.5,0.5)
+                weights[xi][yi] += change
+    return weights
+
+def predict_action(agentX, rocketX, rocketY, model_num):
+    global current_pool
+    agentX = min(SCREENWIDTH, agentX) / SCREENWIDTH - 0.5
+    rocketX = min(SCREENWIDTH, rocketX) / SCREENWIDTH - 0.5
+    rocketY = min(SCREENHEIGHT, rocketY) / SCREENHEIGHT - 0.5
+    neural_input = np.asarray([agentX, rocketX, rocketY])
+    neural_input = np.atleast_2d(neural_input)
+    output_prob = current_pool[model_num].predict(neural_input, 1)[0]
+    if np.argmax(output_prob) == 0:
+        return 0
+    return 1
+       
+    
+# Initialize all models
+for i in range(total_models):
+    model = Sequential()
+    model.add(Dense(input_dim=3, units=7))
+    model.add(Activation("sigmoid"))
+    model.add(Dense(units=2))
+    model.add(Activation("softmax"))
+
+    sgd = SGD(lr=0.01, decay=1e-6, momentum=0.9, nesterov=True)
+    model.compile(loss="mse", optimizer=sgd, metrics=["accuracy"])
+    current_pool.append(model)
+    fitness.append(-100)
+
+if load_saved_pool:
+    for i in range(total_models):
+        current_pool[i].load_weights("Current_Model_Pool/first_model"+str(i)+".keras")
 def main():
     global SCREEN, FPSCLOCK
     pygame.init()
@@ -25,9 +88,12 @@ def main():
     #hitmask for player
     HITMASKS['agent'] = getHitmask(IMAGES['agent'])
     HITMASKS['rocket'] = getHitmask(IMAGES['rocket'])
-    gameloop()
+    while True:
+        gameloop()
+        showGameOverScreen()
     
 def gameloop():
+    global fitness
     score = 0
     # Players 
     playersState = [] # True (alive) or False (dead)
@@ -69,14 +135,20 @@ def gameloop():
                 alive_players -= 1
                 playersState[idx] = False
             if playersState[idx] == True:
+                fitness[idx] += 1
+                action = predict_action(playersPosition[idx][0], rocket[0], rocket[1], idx)
+                if action == 0:
+                    playersVelX[idx] = -spaceship_acceleration
+                elif action == 1:
+                    playersVelX[idx] = spaceship_acceleration
+                
                 nextPlayerPosition = (playersPosition[idx][0] + playersVelX[idx])
                 if  nextPlayerPosition + IMAGES['agent'].get_width() > SCREENWIDTH or nextPlayerPosition < 0: 
                     continue
                 playersPosition[idx][0] += playersVelX[idx]
-                
                     
         if alive_players == 0:
-            return {}
+            return True
         
         # move rocket 
         rocket[1] += rocketVelY
@@ -85,6 +157,7 @@ def gameloop():
         for idx in range(total_models):
             if playersState[idx] == True and rocket[1] > SCREENHEIGHT:
                 score += 1
+                fitness[idx] += 25
                 
         # get new rocket when it leaves the screen 
         if rocket[1] > SCREENHEIGHT:
@@ -144,6 +217,46 @@ def checkCrash(players, rocket):
             statuses[idx] = True
             
     return statuses
+
+def showGameOverScreen():
+    """Perform genetic updates here"""
+    global current_pool
+    global fitness
+    global generation
+    new_weights = []
+    total_fitness = 0
+    for select in range(total_models):
+        total_fitness += fitness[select]
+    print ("total_fitness:", total_fitness)
+    for select in range(total_models):
+        fitness[select] /= total_fitness
+        if select > 0:
+            fitness[select] += fitness[select-1]
+    for select in range(int(total_models/2)):
+        parent1 = random.uniform(0,1)
+        parent2 = random.uniform(0,1)
+        idx1 = -1
+        idx2 = -1
+        for idxx in range(total_models):
+            if fitness[idxx] >= parent1:
+                idx1 = idxx
+                break
+        for idxx in range(total_models):
+            if fitness[idxx] >= parent2:
+                idx2 = idxx
+                break
+        new_weights1 = model_crossover(idx1, idx2)
+        updated_weights1 = model_mutate(new_weights1[0])
+        updated_weights2 = model_mutate(new_weights1[1])
+        new_weights.append(updated_weights1)
+        new_weights.append(updated_weights2)
+    for select in range(len(new_weights)):
+        fitness[select] = -100
+        current_pool[select].set_weights(new_weights[select])
+    if save_current_pool == 1:
+        save_pool()
+    generation = generation + 1
+    return
 
 def pixelCollision(rect1, rect2, hitmask1, hitmask2):
     """Checks if two objects collide and not just their rects"""
