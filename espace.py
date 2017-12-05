@@ -99,7 +99,7 @@ def gameloop():
     playersState = [] # True (alive) or False (dead)
     playersPosition = []
     playersVelX = []
-    spaceship_acceleration = 5
+    spaceship_acceleration = 8 
     
     for idx in range(total_models):
         playersPosition.append([(SCREENWIDTH * 0.45), (SCREENHEIGHT * 0.80)])
@@ -108,7 +108,7 @@ def gameloop():
 
     # Rocket
     rocket = getRandomRocket()
-    rocketVelY = 4 
+    rocketVelY = 8 
 
     alive_players = total_models
     
