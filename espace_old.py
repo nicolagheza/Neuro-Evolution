@@ -1,8 +1,12 @@
 import pygame
+import time
 import random
 
 import numpy as np
 
+from keras.models import Sequential
+from keras.layers import Dense, Activation
+from keras.optimizers import SGD
 FPS = 60
 SCREENWIDTH = 288.0
 SCREENHEIGHT = 512.0
@@ -55,7 +59,6 @@ def predict_action(agentX, rocketX, rocketY, model_num):
        
     
 # Initialize all models
-# NOTE: da riscrivere utilizzando MLX.
 for i in range(total_models):
     model = Sequential()
     model.add(Dense(input_dim=3, units=7))
